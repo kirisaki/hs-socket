@@ -1,9 +1,10 @@
 module Main where
 
-import Network.Socket
+import Network.Socket hiding (send, sendTo, recv, recvFrom)
+import Network.Socket.ByteString.Lazy
 import Control.Monad
 import Control.Concurrent
-import Control.Exception
+import Control.Exception.Safe
 
 main :: IO ()
 main = do
@@ -26,7 +27,7 @@ acceptLoop soc = forever $ do
 echoLoop :: Socket -> IO ()
 echoLoop conn = do
     sequence_ $ repeat $ do
-      (str, _, _) <- recvFrom conn 2
+      str <- recv conn 4096
       send conn str
     `catch` (\(SomeException e) -> return ())
     `finally` close conn
