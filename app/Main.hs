@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
 import Network.Socket hiding (send, sendTo, recv, recvFrom)
@@ -8,15 +10,14 @@ import Control.Exception.Safe
 
 main :: IO ()
 main = do
-    soc <- serveSocket 8080
-    listen soc 5
-    acceptLoop soc `finally` close soc
-
-serveSocket :: PortNumber -> IO Socket
-serveSocket port = do
-    soc <- socket AF_INET Stream defaultProtocol
-    addr <- inet_addr "0.0.0.0"
-    bind soc (SockAddrInet port addr)
+  soc <- serveSocket
+  sendAll soc "GET http:/v1.39/containers/json"
+  print =<< Network.Socket.ByteString.Lazy.getContents soc
+  
+serveSocket :: IO Socket
+serveSocket = do
+    soc <- socket AF_UNIX Stream defaultProtocol
+    connect soc (SockAddrUnix "/var/run/docker.sock")
     return soc
 
 acceptLoop :: Socket -> IO ()
