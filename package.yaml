@@ -23,27 +23,19 @@ dependencies:
 - base >= 4.7 && < 5
 - network
 - safe-exceptions
-library:
-  source-dirs: src
 
 executables:
-  hs-socket:
+  server:
     main:                Main.hs
-    source-dirs:         app
+    source-dirs:         server
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
-    dependencies:
-    - hs-socket
-
-tests:
-  hs-socket-test:
-    main:                Spec.hs
-    source-dirs:         test
+  client:
+    main:                Main.hs
+    source-dirs:         client
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
-    dependencies:
-    - hs-socket
