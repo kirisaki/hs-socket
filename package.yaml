@@ -26,6 +26,9 @@ dependencies:
 - managed
 - mtl
 - network
+- pipes
+- pipes-parse
+- pipes-attoparsec
 - safe-exceptions
 
 executables:

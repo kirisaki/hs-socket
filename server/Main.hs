@@ -1,24 +1,30 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Prelude hiding (putStrLn)
+import Prelude
 import Data.Attoparsec.ByteString
 import Network.Socket 
-import Data.ByteString.Lazy
+import Data.ByteString hiding (putStrLn)
 import Control.Monad
 import Control.Concurrent
 import Control.Exception.Safe
 import Foreign.Storable
-import System.IO
 import Control.Monad.Managed
+import Control.Monad.State.Strict
 import GHC.IO.Buffer
 import Foreign.Storable
 import Data.Word
 import Data.Char
 import Data.ByteString.Unsafe
+import Pipes as P
+import qualified Pipes.Prelude as P
+import Pipes.Attoparsec hiding (parse)
+import Pipes.Parse
+import Foreign.Ptr
+import Control.Monad.IO.Class
 
 main :: IO ()
-main = do
+main =  do
   soc <- serveSocket 8080
   listen soc 5
   acceptLoop soc `finally` close soc
@@ -38,18 +44,43 @@ acceptLoop soc = forever $ do
                                 print e
                                 )
   where
-    parser = takeTill (== 0x20)
-    ignitor = parse parser ""
+    parser = Data.Attoparsec.ByteString.take 10
+    parser' :: Pipes.Parse.Parser ByteString IO (Maybe (Either ParsingError (Int, ByteString)))
+    parser' = parseL parser
     echo :: Socket -> Buffer Word8 -> IO ()
-    echo soc buf = withBuffer buf $ \ptr -> loop ptr ignitor
+    echo soc buf = withBuffer buf $ \ptr -> do
+      forever $ do
+         runStateT (runEffect $ loop ptr >-> consumer) (parse parser "")
       where
-        loop ptr result = do
-          len <- recvBuf soc ptr 4
-          str <- unsafePackCStringFinalizer ptr len (return ())
-          let newResult = feed result str
-          print newResult
-          loop ptr newResult
+        consumer = do
+          val <- P.await
+          liftIO $ print val
+        feedRepeatly :: Result ByteString -> ByteString -> Producer ByteString (StateT (Result ByteString) IO) ()
+        feedRepeatly result str =
+          case feed result str of
+            Done left val -> do
+              if left == ""
+                then return ()
+                else feedRepeatly (parse parser "") left
+              lift $ put (parse parser left)
+              P.yield val
+            Partial r ->
+              lift $ put (Partial r)
+            Fail _ _ _ -> do
+              liftIO $ print "nyaan"
+              lift $ put (parse parser "")
+        loop :: Ptr Word8 -> Producer ByteString (StateT (Result ByteString) IO) ()
+        loop ptr = do
+          len <- liftIO $ recvBuf soc ptr 4
+          str <- liftIO $ unsafePackCStringFinalizer ptr len (return ())
+          result <- lift $ get
+          feedRepeatly result str
+          loop ptr
+        loop' ptr = do
+          len <- lift $ recvBuf soc ptr 4
+          str <- lift $ unsafePackCStringFinalizer ptr len (return ())
+          P.yield str
+          loop' ptr
       
-
 
 
