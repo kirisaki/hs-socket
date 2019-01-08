@@ -27,6 +27,7 @@ dependencies:
 - network
 - safe-exceptions
 - random
+- kazura-queue
 
 executables:
   server:

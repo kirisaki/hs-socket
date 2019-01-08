@@ -15,6 +15,7 @@ import Foreign.Ptr
 import GHC.IO.Buffer
 import Foreign.Storable
 import Data.Word
+import Control.Concurrent.KazuraQueue
 
 bufLen = 2048
 
@@ -34,14 +35,16 @@ serveSocket port = do
 acceptLoop :: Socket -> IO ()
 acceptLoop soc = forever $ do
   (soc', _) <- S.accept soc
-  buf <- newByteBuffer bufLen ReadBuffer
-  forkFinally (server soc' buf)
+  forkFinally (serve soc')
     (\e -> do
         S.close soc'
     )
 
-server :: Socket -> Buffer Word8 -> IO ()
-server soc buf = withBuffer buf $ \ptr -> inexhaustible (receiverTap soc ptr) +& consumer (A.take 10) print
+serve :: Socket -> IO ()
+serve soc = do
+  recvQueue <- newQueue
+  recvBuf <- newByteBuffer bufLen ReadBuffer
+  withBuffer recvBuf $ \ptr -> inexhaustible (receiverTap soc ptr) +& consumer (A.take 10) recvQueue
 
 data Generator a
   = Yield a
@@ -49,8 +52,8 @@ data Generator a
   | Failed ByteString
   deriving (Eq, Show)
 
-consumer :: Parser a -> (Generator a -> IO ()) -> Sink (Tap () ByteString) IO ()
-consumer parser io =
+consumer :: Parser a -> Queue (Generator a)  -> Sink (Tap () ByteString) IO ()
+consumer parser q =
   let
     generate = do
       i <- consume
@@ -67,8 +70,8 @@ consumer parser io =
         _ -> do
           return $ Failed i
   in do
-    generate >>= liftIO . io
-    consumer parser io
+    generate >>= liftIO . writeQueue q
+    consumer parser q
 
 receiverTap :: Socket -> Ptr Word8 -> Producer () ByteString IO ()
 receiverTap soc ptr =
