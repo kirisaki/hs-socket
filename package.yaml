@@ -24,13 +24,9 @@ dependencies:
 - attoparsec
 - drinkery
 - bytestring
-- managed
-- mtl
 - network
-- pipes
-- pipes-parse
-- pipes-attoparsec
 - safe-exceptions
+- random
 
 executables:
   server:

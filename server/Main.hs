@@ -2,7 +2,7 @@
 {-# LANGUAGE Strict #-}
 module Main where
 
-import Data.Drinkery
+import Data.Drinkery as DR
 import Data.ByteString
 import Data.ByteString.Internal
 import Control.Monad
@@ -15,6 +15,8 @@ import Foreign.Ptr
 import GHC.IO.Buffer
 import Foreign.Storable
 import Data.Word
+
+bufLen = 2048
 
 main :: IO ()
 main =  do
@@ -32,41 +34,49 @@ serveSocket port = do
 acceptLoop :: Socket -> IO ()
 acceptLoop soc = forever $ do
   (soc', _) <- S.accept soc
-  buf <- newByteBuffer 4 ReadBuffer
-  forkFinally (server soc' buf) (\e -> do
-                                print e
-                                )
+  buf <- newByteBuffer bufLen ReadBuffer
+  forkFinally (server soc' buf)
+    (\e -> do
+        S.close soc'
+    )
 
 server :: Socket -> Buffer Word8 -> IO ()
-server soc buf = withBuffer buf $ \ptr -> socketTap soc ptr +& consumer
+server soc buf = withBuffer buf $ \ptr -> inexhaustible (receiverTap soc ptr) +& consumer (A.take 10) print
 
-consumer :: Sink (Tap () ByteString) IO ()
-consumer =
+data Generator a
+  = Yield a
+  | Pending
+  | Failed ByteString
+  deriving (Eq, Show)
+
+consumer :: Parser a -> (Generator a -> IO ()) -> Sink (Tap () ByteString) IO ()
+consumer parser io =
   let
-    parser = A.take 10
-    parseRepeatedly = do
+    generate = do
       i <- consume
       case parse parser i of
         Done "" r ->
-          liftIO $ print r
+          return $ Yield r
         Done i' r -> do
           leftover i'
-          liftIO $ print r
-        Partial _ -> do
+          return $ Yield r
+        Partial r -> do
           i' <- consume
           leftover (i <> i')
-        _ ->
-          liftIO $ print "nyaan"      
+          return Pending
+        _ -> do
+          return $ Failed i
   in do
-    parseRepeatedly
-    consumer
+    generate >>= liftIO . io
+    consumer parser io
 
-type SocketTap = Tap () ByteString IO
-
-socketTap :: Socket -> Ptr Word8 -> SocketTap
-socketTap soc ptr = repeatTapM' io
-  where
+receiverTap :: Socket -> Ptr Word8 -> Producer () ByteString IO ()
+receiverTap soc ptr =
+  let
     io = do
-      len <- recvBuf soc ptr 4
+      len <- recvBuf soc ptr bufLen
       create len $ \buf -> memcpy buf ptr len
+  in do
+    produce =<< liftIO io
+    receiverTap soc ptr
 
